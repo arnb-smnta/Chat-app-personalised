@@ -8,6 +8,7 @@ import { ApiError } from "../../../utils/ApiError.js";
 import { ApiResponse } from "../../../utils/ApiResponse.js";
 import { asyncHandler } from "../../../utils/asyncHandler.js";
 import { removeLocalFile } from "../../../utils/helpers.js";
+import { uploadOnCloudinary } from "../../../utils/cloudinary.js";
 
 /**
  * @description Utility function which returns the pipeline stages to structure the chat schema with common lookups
@@ -216,7 +217,9 @@ const createOrGetAOneOnOneChat = asyncHandler(async (req, res) => {
 });
 
 const createAGroupChat = asyncHandler(async (req, res) => {
-  const { name, participants } = req.body;
+  const { name, description, participants, groupType } = req.body;
+  const profilePicLocalPath = req?.file?.path;
+  console.log(req);
 
   // Check if user is not sending himself as a participant. This will be done manually
   if (participants.includes(req.user._id.toString())) {
@@ -224,6 +227,11 @@ const createAGroupChat = asyncHandler(async (req, res) => {
       400,
       "Participants array should not contain the group creator"
     );
+  }
+
+  const cloudinaryProfilePicUrl = "";
+  if (profilePicLocalPath) {
+    cloudinaryProfilePicUrl = await uploadOnCloudinary(profilePicLocalPath);
   }
 
   const members = [...new Set([...participants, req.user._id.toString()])]; // check for duplicates
@@ -240,9 +248,12 @@ const createAGroupChat = asyncHandler(async (req, res) => {
   // Create a group chat with provided members
   const groupChat = await Chat.create({
     name,
+    description: description || "",
     isGroupChat: true,
     participants: members,
     admin: req.user._id,
+    profilePic: cloudinaryProfilePicUrl || "",
+    groupType,
   });
 
   // structure the chat
@@ -637,6 +648,8 @@ const getAllChats = asyncHandler(async (req, res) => {
     );
 });
 
+const updateGroupChatPic = asyncHandler(async (req, res) => {});
+
 export {
   addNewParticipantInGroupChat,
   createAGroupChat,
@@ -649,4 +662,5 @@ export {
   removeParticipantFromGroupChat,
   renameGroupChat,
   searchAvailableUsers,
+  updateGroupChatPic,
 };

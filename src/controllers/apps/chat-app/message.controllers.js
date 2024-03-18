@@ -7,6 +7,10 @@ import { ApiError } from "../../../utils/ApiError.js";
 import { ApiResponse } from "../../../utils/ApiResponse.js";
 import { asyncHandler } from "../../../utils/asyncHandler.js";
 import { getLocalPath, getStaticFilePath } from "../../../utils/helpers.js";
+import {
+  deleteOnCloudinary,
+  uploadOnCloudinary,
+} from "../../../utils/cloudinary.js";
 
 /**
  * @description Utility function which returns the pipeline stages to structure the chat message schema with common lookups
@@ -88,6 +92,23 @@ const sendMessage = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Chat does not exist");
   }
 
+  //check for group chat type for sending message
+
+  if (selectedChat.isGroupChat) {
+    if (!selectedChat.groupType === "everyone") {
+      if (
+        !selectedChat.admins.some(
+          (admin) => admin.toString() === req.user._id.toString()
+        )
+      ) {
+        throw new ApiError(
+          401,
+          "You are not authorised to send message in this chat only admins can"
+        );
+      }
+    }
+  }
+
   const messageFiles = [];
 
   if (req.files && req.files.attachments?.length > 0) {
@@ -99,12 +120,31 @@ const sendMessage = asyncHandler(async (req, res) => {
     });
   }
 
+  const cloudinaryUrl = [];
+
+  //uploading the static files
+  if (messageFiles.length > 0) {
+    await Promise.all(
+      messageFiles.map(async (files) => {
+        console.log(files.localPath);
+        const url = await uploadOnCloudinary(files.localPath);
+        console.log(url, "url");
+        cloudinaryUrl.push({
+          url: url.url,
+          localPath: files.localPath,
+          public_id: url.public_id,
+        });
+      })
+    );
+  }
+
+  console.log(cloudinaryUrl[0]);
   // Create a new message instance with appropriate metadata
   const message = await ChatMessage.create({
     sender: new mongoose.Types.ObjectId(req.user._id),
     content: content || "",
     chat: new mongoose.Types.ObjectId(chatId),
-    attachments: messageFiles,
+    attachments: cloudinaryUrl,
   });
 
   // update the chat's last message which could be utilized to show last message in the list item
@@ -155,4 +195,226 @@ const sendMessage = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, receivedMessage, "Message saved successfully"));
 });
 
-export { getAllMessages, sendMessage };
+const deleteMessage = asyncHandler(async (req, res) => {
+  //works to be done
+  //check for message id ,chat id ,currenttime , group check,group type check ,
+  //check for message owner and the user is same or not
+  //check if 15 mins has passed or not after stamp id
+  //delete message
+  //if attachment check for attachments and delete the attachments on cloudinary
+  //check if message is deleted or not
+  //update the last message of chat
+
+  const { chatId, messageId } = req.params;
+
+  //Find the chat based on chat id
+
+  const chat = await Chat.findOne({
+    _id: new mongoose.Types.ObjectId(chatId),
+  });
+
+  if (!chat) {
+    throw new ApiError(404, "Chat does not exist");
+  }
+  //Find the message based on message id
+  const message = await ChatMessage.findOne({
+    _id: new mongoose.Types.ObjectId(messageId),
+  });
+
+  if (!message) {
+    throw new ApiError(404, "Message does not exist");
+  }
+
+  console.log(message, "messagehdjkwsdhhfdjkk");
+
+  //Checking for group chat
+
+  if (chat.isGroupChat) {
+    if (
+      message.sender?.toString() === req.user._id?.toString() ||
+      chat.admin?.some((user) => user?.toString() === req.user._id?.toString())
+    ) {
+      //If the sender is admin then delete the message immidiately
+      if (
+        chat.admin?.some(
+          (user) => user?.toString() === req.user._id?.toString()
+        )
+      ) {
+        await ChatMessage.deleteOne({
+          _id: new mongoose.Types.ObjectId(messageId),
+        })
+          .then(async (result) => {
+            //see if the message has attachments then have to delete the messages from cloudinary
+
+            if (message.attachments.length > 0) {
+              await Promise.all(
+                message.attachments.map(
+                  async (assets) => await deleteOnCloudinary(assets.public_id)
+                )
+              );
+            }
+
+            //updating the last message of the chat
+            const lastMessage = await ChatMessage.findOne(
+              { chat: chatId },
+              {},
+              { sort: { createdAt: -1 } }
+            );
+            await Chat.findByIdAndUpdate(chatId, {
+              lastMessage: lastMessage ? lastMessage?._id : null,
+            });
+
+            // logic to emit socket event about the message deleted  to the other participants
+            chat.participants.forEach((participantObjectId) => {
+              // here the chat is the raw instance of the chat in which participants is the array of object ids of users
+              // avoid emitting event to the user who is deleting the message
+              if (participantObjectId.toString() === req.user._id.toString())
+                return;
+
+              // emit the delete message event to the other participants frontend with delete message as the payload
+              emitSocketEvent(
+                req,
+                participantObjectId.toString(),
+                ChatEventEnum.MESSAGE_DELETED_EVENT,
+                message
+              );
+            });
+
+            return res
+              .status(200)
+              .json(new ApiResponse(200, {}, "Message Deleted Successfully"));
+          })
+          .catch((err) => {
+            throw new ApiError(500, "Internal Server Error Try again");
+          });
+      }
+      //Checking time 15 mins to delete the message sent by user
+      if (message.sender?.toString() === req.user._id?.toString()) {
+        const currentTime = new Date();
+        const messageCreatedAt = message.createdAt;
+        const timeDifferenceMinutes =
+          (currentTime - messageCreatedAt) / (1000 * 60);
+
+        if (timeDifferenceMinutes < 15) {
+          await ChatMessage.deleteOne({
+            _id: new mongoose.Types.ObjectId(messageId),
+          })
+            .then(async (result) => {
+              //see if the message has attachments then have to delete the messages from cloudinary
+
+              if (message.attachments.length > 0) {
+                await Promise.all(
+                  message.attachments.map(
+                    async (assets) => await deleteOnCloudinary(assets.public_id)
+                  )
+                );
+              }
+
+              //updating the last message of the chat
+              const lastMessage = await ChatMessage.findOne(
+                { chat: chatId },
+                {},
+                { sort: { createdAt: -1 } }
+              );
+              await Chat.findByIdAndUpdate(chatId, {
+                lastMessage: lastMessage ? lastMessage?._id : null,
+              });
+
+              // logic to emit socket event about the message deleted  to the other participants
+              chat.participants.forEach((participantObjectId) => {
+                // here the chat is the raw instance of the chat in which participants is the array of object ids of users
+                // avoid emitting event to the user who is deleting the message
+                if (participantObjectId.toString() === req.user._id.toString())
+                  return;
+
+                // emit the delete message event to the other participants frontend with delete message as the payload
+                emitSocketEvent(
+                  req,
+                  participantObjectId.toString(),
+                  ChatEventEnum.MESSAGE_DELETED_EVENT,
+                  message
+                );
+              });
+              return res
+                .status(200)
+                .json(new ApiResponse(200, {}, "Message Deleted Successfully"));
+            })
+            .catch((err) => {
+              throw new ApiError(500, "Internal Server Error Try again");
+            });
+        }
+
+        throw new ApiError(
+          400,
+          "15 mins has passed you cannot delete this message"
+        );
+      }
+    }
+    //If user is not the admin or the sender
+    throw new ApiError(401, "You are not authorised to delete the message");
+  }
+
+  //One On One Chat Cases
+
+  if (message.sender?.toString() === req.user._id?.toString()) {
+    const currentTime = new Date();
+    const messageCreatedAt = message.createdAt;
+    const timeDifferenceMinutes =
+      (currentTime - messageCreatedAt) / (1000 * 60);
+
+    if (timeDifferenceMinutes < 15) {
+      await ChatMessage.deleteOne({
+        _id: new mongoose.Types.ObjectId(messageId),
+      })
+        .then(async (result) => {
+          //see if the message has attachments then have to delete the messages from cloudinary
+
+          if (message.attachments.length > 0) {
+            await Promise.all(
+              message.attachments.map(
+                async (assets) => await deleteOnCloudinary(assets.public_id)
+              )
+            );
+          }
+
+          //updating the last message of the chat
+          const lastMessage = await ChatMessage.findOne(
+            { chat: chatId },
+            {},
+            { sort: { createdAt: -1 } }
+          );
+
+          // logic to emit socket event about the message deleted  to the other participants
+          chat.participants.forEach((participantObjectId) => {
+            // here the chat is the raw instance of the chat in which participants is the array of object ids of users
+            // avoid emitting event to the user who is deleting the message
+            if (participantObjectId.toString() === req.user._id.toString())
+              return;
+
+            // emit the delete message event to the other participants frontend with delete message as the payload
+            emitSocketEvent(
+              req,
+              participantObjectId.toString(),
+              ChatEventEnum.MESSAGE_DELETED_EVENT,
+              message
+            );
+          });
+          return res
+            .status(200)
+            .json(new ApiResponse(200, {}, "Message Deleted Successfully"));
+        })
+        .catch((err) => {
+          throw new ApiError(500, "Internal Server Error Try again");
+        });
+    }
+
+    throw new ApiError(
+      400,
+      "15 mins has passed you cannot delete this message"
+    );
+  }
+  //If the user is not the sender
+  throw new ApiError(401, "You are not authorised to delete this message");
+});
+
+export { getAllMessages, sendMessage, deleteMessage };

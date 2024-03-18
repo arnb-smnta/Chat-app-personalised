@@ -10,6 +10,14 @@ const chatSchema = new Schema(
       type: Boolean,
       default: false,
     },
+
+    profilePic: { type: String },
+    description: { type: String },
+    groupType: {
+      type: String,
+      enum: ["adminOnly", "everyone", null],
+      default: null,
+    },
     lastMessage: {
       type: Schema.Types.ObjectId,
       ref: "ChatMessage",
@@ -20,10 +28,12 @@ const chatSchema = new Schema(
         ref: "User",
       },
     ],
-    admin: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-    },
+    admin: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true }
 );

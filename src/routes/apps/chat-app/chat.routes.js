@@ -11,6 +11,7 @@ import {
   removeParticipantFromGroupChat,
   renameGroupChat,
   searchAvailableUsers,
+  updateGroupChatPic,
 } from "../../../controllers/apps/chat-app/chat.controllers.js";
 import { verifyJWT } from "../../../middlewares/auth.middlewares.js";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../../../validators/apps/chat-app/chat.validators.js";
 import { mongoIdPathVariableValidator } from "../../../validators/common/mongodb.validators.js";
 import { validate } from "../../../validators/validate.js";
+import { upload } from "../../../middlewares/multer.middlewares.js";
 
 const router = Router();
 
@@ -38,7 +40,12 @@ router
 
 router
   .route("/group")
-  .post(createAGroupChatValidator(), validate, createAGroupChat);
+  .post(
+    upload.single("profilePic"),
+    createAGroupChatValidator(),
+    validate,
+    createAGroupChat
+  );
 
 router
   .route("/group/:chatId")
@@ -73,5 +80,9 @@ router
 router
   .route("/remove/:chatId")
   .delete(mongoIdPathVariableValidator("chatId"), validate, deleteOneOnOneChat);
+
+router
+  .route("/group/pic/:chatId")
+  .patch(mongoIdPathVariableValidator("chatId"), validate, updateGroupChatPic);
 
 export default router;

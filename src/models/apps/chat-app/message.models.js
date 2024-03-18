@@ -15,6 +15,7 @@ const chatMessageSchema = new Schema(
         {
           url: String,
           localPath: String,
+          public_id: String,
         },
       ],
       default: [],
