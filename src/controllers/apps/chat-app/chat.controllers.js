@@ -337,7 +337,11 @@ const renameGroupChat = asyncHandler(async (req, res) => {
   }
 
   // only admin can change the name
-  if (!groupChat.admin.some((user) => user.toString() === req.user?._id)) {
+  if (
+    !groupChat.admin.some(
+      (user) => user.toString() === req.user?._id.toString()
+    )
+  ) {
     throw new ApiError(404, "You are not an admin");
   }
 
