@@ -11,7 +11,13 @@ const chatSchema = new Schema(
       default: false,
     },
 
-    profilePic: { type: String },
+    profilePic: {
+      type: {
+        url: String,
+        localPath: String,
+        public_id: String,
+      },
+    },
     description: { type: String },
     groupType: {
       type: String,

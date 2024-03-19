@@ -81,6 +81,7 @@ const getAllMessages = asyncHandler(async (req, res) => {
 const sendMessage = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const { content } = req.body;
+  console.log(chatId);
 
   if (!content && !req.files?.attachments?.length) {
     throw new ApiError(400, "Message content or attachment is required");
@@ -95,9 +96,9 @@ const sendMessage = asyncHandler(async (req, res) => {
   //check for group chat type for sending message
 
   if (selectedChat.isGroupChat) {
-    if (!selectedChat.groupType === "everyone") {
+    if (selectedChat.groupType === "adminOnly") {
       if (
-        !selectedChat.admins.some(
+        !selectedChat.admin.some(
           (admin) => admin.toString() === req.user._id.toString()
         )
       ) {
@@ -126,9 +127,9 @@ const sendMessage = asyncHandler(async (req, res) => {
   if (messageFiles.length > 0) {
     await Promise.all(
       messageFiles.map(async (files) => {
-        console.log(files.localPath);
+        console.log(files.localPath, "files");
         const url = await uploadOnCloudinary(files.localPath);
-        console.log(url, "url");
+        //creating the attachment object
         cloudinaryUrl.push({
           url: url.url,
           localPath: files.localPath,
@@ -196,14 +197,7 @@ const sendMessage = asyncHandler(async (req, res) => {
 });
 
 const deleteMessage = asyncHandler(async (req, res) => {
-  //works to be done
-  //check for message id ,chat id ,currenttime , group check,group type check ,
-  //check for message owner and the user is same or not
-  //check if 15 mins has passed or not after stamp id
-  //delete message
-  //if attachment check for attachments and delete the attachments on cloudinary
-  //check if message is deleted or not
-  //update the last message of chat
+  //Controller to delete chat messages
 
   const { chatId, messageId } = req.params;
 
@@ -224,8 +218,6 @@ const deleteMessage = asyncHandler(async (req, res) => {
   if (!message) {
     throw new ApiError(404, "Message does not exist");
   }
-
-  console.log(message, "messagehdjkwsdhhfdjkk");
 
   //Checking for group chat
 
@@ -288,6 +280,8 @@ const deleteMessage = asyncHandler(async (req, res) => {
             throw new ApiError(500, "Internal Server Error Try again");
           });
       }
+      //We do not need to check for admins only group because sender can only be admin so the if will not execute
+
       //Checking time 15 mins to delete the message sent by user
       if (message.sender?.toString() === req.user._id?.toString()) {
         const currentTime = new Date();

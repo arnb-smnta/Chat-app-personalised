@@ -59,8 +59,6 @@ const deleteOnCloudinary = async (public_id, mediatype = "image") => {
       });
     });
 
-    console.log(public_id);
-
     if (!public_id) return null;
 
     // Delete file on Cloudinary

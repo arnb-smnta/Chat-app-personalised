@@ -8,7 +8,10 @@ import { ApiError } from "../../../utils/ApiError.js";
 import { ApiResponse } from "../../../utils/ApiResponse.js";
 import { asyncHandler } from "../../../utils/asyncHandler.js";
 import { removeLocalFile } from "../../../utils/helpers.js";
-import { uploadOnCloudinary } from "../../../utils/cloudinary.js";
+import {
+  deleteOnCloudinary,
+  uploadOnCloudinary,
+} from "../../../utils/cloudinary.js";
 
 /**
  * @description Utility function which returns the pipeline stages to structure the chat schema with common lookups
@@ -219,7 +222,6 @@ const createOrGetAOneOnOneChat = asyncHandler(async (req, res) => {
 const createAGroupChat = asyncHandler(async (req, res) => {
   const { name, description, participants, groupType } = req.body;
   const profilePicLocalPath = req?.file?.path;
-  console.log(req);
 
   // Check if user is not sending himself as a participant. This will be done manually
   if (participants.includes(req.user._id.toString())) {
@@ -229,9 +231,17 @@ const createAGroupChat = asyncHandler(async (req, res) => {
     );
   }
 
-  const cloudinaryProfilePicUrl = "";
+  let cloudinaryProfilePicUrl = {};
+
   if (profilePicLocalPath) {
-    cloudinaryProfilePicUrl = await uploadOnCloudinary(profilePicLocalPath);
+    const cloudinaryReturnObject = await uploadOnCloudinary(
+      profilePicLocalPath
+    );
+    cloudinaryProfilePicUrl = {
+      url: cloudinaryReturnObject.url,
+      localPath: profilePicLocalPath,
+      public_id: cloudinaryReturnObject.public_id,
+    };
   }
 
   const members = [...new Set([...participants, req.user._id.toString()])]; // check for duplicates
@@ -252,7 +262,7 @@ const createAGroupChat = asyncHandler(async (req, res) => {
     isGroupChat: true,
     participants: members,
     admin: req.user._id,
-    profilePic: cloudinaryProfilePicUrl || "",
+    profilePic: cloudinaryProfilePicUrl,
     groupType,
   });
 
@@ -327,7 +337,7 @@ const renameGroupChat = asyncHandler(async (req, res) => {
   }
 
   // only admin can change the name
-  if (groupChat.admin?.toString() !== req.user._id?.toString()) {
+  if (!groupChat.admin.some((user) => user.toString() === req.user?._id)) {
     throw new ApiError(404, "You are not an admin");
   }
 
@@ -648,7 +658,84 @@ const getAllChats = asyncHandler(async (req, res) => {
     );
 });
 
-const updateGroupChatPic = asyncHandler(async (req, res) => {});
+const updateGroupChatPic = asyncHandler(async (req, res) => {
+  const { chatId } = req.params;
+  const profilePicLocalPath = req?.file?.path;
+  console.log(req.file, "profilePic");
+  // check for chat existence
+  const groupChat = await Chat.findOne({
+    _id: new mongoose.Types.ObjectId(chatId),
+    isGroupChat: true,
+  });
+
+  if (!groupChat) {
+    throw new ApiError(404, "Group chat does not exist");
+  }
+  // only admin can change the group pic
+  if (
+    !groupChat.admin.some(
+      (user) => user.toString() === req.user?._id.toString()
+    )
+  ) {
+    throw new ApiError(401, "You are not an admin");
+  }
+
+  //uploading the profile pic on cloudinary and creating the profile pic object
+  let cloudinaryUrl = {};
+
+  if (profilePicLocalPath) {
+    console.log("inside upload");
+    const cloudinaryReturnObject = await uploadOnCloudinary(
+      profilePicLocalPath
+    );
+    cloudinaryUrl = {
+      url: cloudinaryReturnObject.url,
+      localPath: profilePicLocalPath,
+      public_id: cloudinaryReturnObject.public_id,
+    };
+  }
+  console.log(cloudinaryUrl);
+  const updatedChat = await Chat.findByIdAndUpdate(
+    chatId,
+    { $set: { profilePic: cloudinaryUrl } },
+    { new: true }
+  );
+
+  //If previously a group pic was there deleting the group pic from cloudinary
+  if (Object.entries(groupChat.profilePic).length !== 0) {
+    await deleteOnCloudinary(groupChat.profilePic.public_id);
+  }
+  //Structuring the chat
+  const chat = await Chat.aggregate([
+    {
+      $match: {
+        _id: updatedChat._id,
+      },
+    },
+    ...chatCommonAggregation(),
+  ]);
+
+  const payload = chat[0];
+
+  if (!payload) {
+    throw new ApiError(500, "Internal Server Error");
+  }
+
+  // logic to emit socket event about the updated chat pic to the participants
+  payload?.participants?.forEach((participant) => {
+    // emit event to all the participants with updated chat as a payload
+    emitSocketEvent(
+      req,
+      participant._id?.toString(),
+      ChatEventEnum.UPDATE_GROUP_PIC_EVENT,
+      payload
+    );
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, chat[0], "Group chat Pic updated successfully"));
+});
 
 export {
   addNewParticipantInGroupChat,

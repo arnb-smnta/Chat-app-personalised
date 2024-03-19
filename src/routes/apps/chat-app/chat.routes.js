@@ -83,6 +83,11 @@ router
 
 router
   .route("/group/pic/:chatId")
-  .patch(mongoIdPathVariableValidator("chatId"), validate, updateGroupChatPic);
+  .patch(
+    upload.single("profilePic"),
+    mongoIdPathVariableValidator("chatId"),
+    validate,
+    updateGroupChatPic
+  );
 
 export default router;
