@@ -88,12 +88,11 @@ export const ChatEventEnum = Object.freeze({
   LEAVE_CHAT_EVENT: "leaveChat",
   // ? when admin updates a group name
   UPDATE_GROUP_NAME_EVENT: "updateGroupName",
-
   // ? when admin changes the group profile pic
   UPDATE_GROUP_PIC_EVENT: "updateGroupPic",
   // ? when new message is received
   MESSAGE_RECEIVED_EVENT: "messageReceived",
-  // ? when there is new one on one chat, new group chat or user gets added in the group
+  // ? when there is new one on one chat, new group chat or user gets added in the group or participants are added as admins
   NEW_CHAT_EVENT: "newChat",
   // ? when there is an error in socket
   SOCKET_ERROR_EVENT: "socketError",

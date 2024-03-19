@@ -8,6 +8,7 @@ import {
   getAllChats,
   getGroupChatDetails,
   leaveGroupChat,
+  removeGroupAdmin,
   removeParticipantFromGroupChat,
   renameGroupChat,
   searchAvailableUsers,
@@ -90,4 +91,20 @@ router
     updateGroupChatPic
   );
 
+router
+  .route("/group/admin/:chatId/:participantId")
+  .patch(
+    mongoIdPathVariableValidator("chatId"),
+    mongoIdPathVariableValidator("participantId"),
+    validate,
+    addGroupAdmin
+  )
+  .delete(
+    mongoIdPathVariableValidator(
+      "chatId",
+      mongoIdPathVariableValidator("participantId")
+    ),
+    validate,
+    removeGroupAdmin
+  );
 export default router;

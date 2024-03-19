@@ -324,7 +324,7 @@ const getGroupChatDetails = asyncHandler(async (req, res) => {
 
 const renameGroupChat = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
-  const { name } = req.body;
+  const { name, description, groupType } = req.body;
 
   // check for chat existence
   const groupChat = await Chat.findOne({
@@ -336,7 +336,7 @@ const renameGroupChat = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Group chat does not exist");
   }
 
-  // only admin can change the name
+  // only admin can change the name and description
   if (
     !groupChat.admin.some(
       (user) => user.toString() === req.user?._id.toString()
@@ -345,11 +345,28 @@ const renameGroupChat = asyncHandler(async (req, res) => {
     throw new ApiError(404, "You are not an admin");
   }
 
+  //If grouptype change is initiated
+  if (groupChat.groupType !== groupType) {
+    //only the primary admin or first admin can change the group Type
+    if (groupChat.admin[0]?.toString() !== req.user?._id.toString()) {
+      throw new ApiError(
+        401,
+        "Unauthorised request you are not the primary admin"
+      );
+    }
+    const updatedGroupChat = await Chat.findByIdAndUpdate(chatId, {
+      $set: {
+        groupType,
+      },
+    });
+  }
+
   const updatedGroupChat = await Chat.findByIdAndUpdate(
     chatId,
     {
       $set: {
         name,
+        description,
       },
     },
     { new: true }
@@ -538,7 +555,11 @@ const addNewParticipantInGroupChat = asyncHandler(async (req, res) => {
   }
 
   // check if user who is adding is a group admin
-  if (groupChat.admin?.toString() !== req.user._id?.toString()) {
+  if (
+    !groupChat.admin?.some(
+      (user) => user.toString() === req.user?._id.toString()
+    )
+  ) {
     throw new ApiError(404, "You are not an admin");
   }
 
@@ -741,6 +762,103 @@ const updateGroupChatPic = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, chat[0], "Group chat Pic updated successfully"));
 });
 
+const addGroupAdmin = asyncHandler(async (req, res) => {
+  const { chatId, participantId } = req.params;
+
+  const groupChat = await Chat.findOne({
+    _id: new mongoose.Types.ObjectId(chatId),
+    isGroupChat: true,
+  });
+
+  if (!groupChat) {
+    throw new ApiError(404, "Group chat does not exist");
+  }
+
+  //check if the user who is adding is a group admin
+
+  if (
+    !groupChat.admin?.some(
+      (user) => user.toString() === req.user?._id.toString()
+    )
+  ) {
+    throw new ApiError(404, "You are not an admin");
+  }
+
+  const existingAdmins = groupChat.admin;
+
+  // check if the admin that is being added is already one of the admin of the group
+
+  if (existingAdmins?.includes(participantId)) {
+    throw new ApiError(409, "Admin is already a part of group chat");
+  }
+
+  const updatedChat = await Chat.findByIdAndUpdate(
+    chatId,
+    {
+      $push: {
+        admin: participantId,
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  const chat = await Chat.aggregate([
+    {
+      $match: {
+        _id: updatedChat._id,
+      },
+    },
+    ...chatCommonAggregation(),
+  ]);
+  const payload = chat[0];
+
+  if (!payload) {
+    throw new ApiError(500, "Internal Server Error");
+  }
+
+  //emit new chat event to the  particpant who is added as admins
+
+  emitSocketEvent(req, participantId, ChatEventEnum.NEW_CHAT_EVENT, payload);
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, payload, "Admin added succesfully"));
+});
+const removeGroupAdmin = asyncHandler(async (req, res) => {
+  const { chatId, participantId } = req.params;
+
+  const groupChat = await Chat.findOne({
+    _id: new mongoose.Types.ObjectId(chatId),
+    isGroupChat: true,
+  });
+
+  if (!groupChat) {
+    throw new ApiError(404, "Group chat does not exist");
+  }
+
+  //check if the user who is removing the group admin is a primary admin
+
+  if (groupChat?.admin[0]?.toString() !== req.user?._id?.toString()) {
+    //check if primary admin is trying to remove himself as admin
+
+    if (participantId === groupChat.admin[0]?.toString()) {
+      //If true then check their are more than one admin or not in the group admins
+    }
+
+    throw new ApiError(404, "You are not the primary admin");
+  }
+
+  const existingAdmins = groupChat.admin;
+
+  // check if the admin that is being added is already one of the admin of the group
+
+  if (existingAdmins?.includes(participantId)) {
+    throw new ApiError(409, "Admin is already a part of group chat");
+  }
+});
+
 export {
   addNewParticipantInGroupChat,
   createAGroupChat,
@@ -754,4 +872,6 @@ export {
   renameGroupChat,
   searchAvailableUsers,
   updateGroupChatPic,
+  addGroupAdmin,
+  removeGroupAdmin,
 };
